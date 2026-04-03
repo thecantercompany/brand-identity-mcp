@@ -2,6 +2,9 @@
 
 ## [2026-04-03]
 
+### Fixed
+- Fixed 500 error on MCP connection by switching to per-session transport pattern with Express (matches working Advocacy Content MCP server)
+
 ### Changed
 - Converted from Claude skill (SKILL.md) to MCP server with TypeScript
 - Now uses `generate_brand_identity` tool via MCP protocol instead of skill invocation

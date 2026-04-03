@@ -8,10 +8,14 @@
  * Transport: Streamable HTTP at /mcp (for Railway deployment)
  */
 
-import { createServer } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { randomUUID } from "crypto";
+import express from "express";
 import { registerBrandIdentityTools } from "./tools/brand-identity.js";
+
+// CRITICAL: Never use console.log() — it corrupts JSON-RPC on stdout
+// Always use console.error() for any logging/debugging
 
 export const BRAND_IDENTITY_GUIDE = `
 ## Brand Identity Generation Guide
@@ -84,11 +88,17 @@ After receiving the tool response:
 - All color combinations must meet WCAG AA contrast ratios
 `.trim();
 
-async function main(): Promise<void> {
-  const server = new McpServer({
-    name: "brand-identity-mcp",
-    version: "1.0.0",
-  });
+function createServer(): McpServer {
+  const server = new McpServer(
+    {
+      name: "brand-identity-mcp",
+      version: "1.0.0",
+    },
+    {
+      instructions:
+        "Brand Identity MCP — generates comprehensive brand identity systems and design system specs. Use the generate_brand_identity tool to produce styled HTML documents and design language markdown.",
+    }
+  );
 
   // Register the guide prompt
   server.prompt(
@@ -110,46 +120,87 @@ async function main(): Promise<void> {
   // Register all tools
   registerBrandIdentityTools(server);
 
-  // Streamable HTTP transport — stateless (no session management needed)
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
+  return server;
+}
+
+async function main(): Promise<void> {
+  const PORT = parseInt(process.env.PORT || "3000", 10);
+  const app = express();
+
+  // Track active transports by session ID
+  const streamableTransports = new Map<
+    string,
+    StreamableHTTPServerTransport
+  >();
+
+  // Health check
+  app.get("/health", (_req, res) => {
+    res.json({
+      status: "ok",
+      name: "brand-identity-mcp",
+      version: "1.0.0",
+    });
   });
 
-  await server.connect(transport);
+  // Streamable HTTP endpoint
+  app.all("/mcp", async (req, res) => {
+    console.error(`Streamable HTTP ${req.method} from ${req.ip}`);
 
-  // HTTP server
-  const PORT = parseInt(process.env.PORT || "3000", 10);
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-  const httpServer = createServer(async (req, res) => {
-    const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+    if (sessionId && streamableTransports.has(sessionId)) {
+      // Existing session — route to its transport
+      await streamableTransports.get(sessionId)!.handleRequest(req, res);
+    } else if (req.method === "POST" && !sessionId) {
+      // New session — first POST has no session ID (the initialize request)
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+      });
 
-    // Health check
-    if (url.pathname === "/health" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", server: "brand-identity-mcp" }));
-      return;
-    }
+      const server = createServer();
+      await server.connect(transport);
 
-    // MCP endpoint
-    if (url.pathname === "/mcp") {
+      // handleRequest processes the initialize and sets the session ID
       await transport.handleRequest(req, res);
-      return;
-    }
 
-    // Not found
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Not found" }));
+      // After handleRequest, transport.sessionId is now set
+      if (transport.sessionId) {
+        console.error(`New Streamable HTTP session: ${transport.sessionId}`);
+        streamableTransports.set(transport.sessionId, transport);
+
+        transport.onclose = () => {
+          console.error(
+            `Streamable HTTP session closed: ${transport.sessionId}`
+          );
+          if (transport.sessionId) {
+            streamableTransports.delete(transport.sessionId);
+          }
+        };
+      }
+    } else if (req.method === "DELETE" && sessionId) {
+      // Session cleanup
+      const transport = streamableTransports.get(sessionId);
+      if (transport) {
+        await transport.handleRequest(req, res);
+        streamableTransports.delete(sessionId);
+      } else {
+        res.status(404).json({ error: "Session not found" });
+      }
+    } else {
+      res.status(400).json({ error: "Invalid or missing session ID" });
+    }
   });
 
   // Graceful shutdown
-  const shutdown = () => {
-    console.error("Shutting down...");
-    httpServer.close();
+  process.on("SIGTERM", () => {
+    console.error("Received SIGTERM, shutting down...");
     process.exit(0);
-  };
+  });
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on("SIGINT", () => {
+    console.error("Received SIGINT, shutting down...");
+    process.exit(0);
+  });
 
   process.on("uncaughtException", (error) => {
     console.error("Uncaught exception:", error);
@@ -161,9 +212,9 @@ async function main(): Promise<void> {
     process.exit(1);
   });
 
-  httpServer.listen(PORT, () => {
+  app.listen(PORT, () => {
     console.error(`Brand Identity MCP server listening on port ${PORT}`);
-    console.error(`MCP endpoint: http://localhost:${PORT}/mcp`);
+    console.error(`Streamable HTTP: http://localhost:${PORT}/mcp`);
     console.error(`Health check: http://localhost:${PORT}/health`);
   });
 }
