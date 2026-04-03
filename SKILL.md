@@ -204,16 +204,15 @@ For each of 30+ components, include:
 
 ## Step 6: Convert to PDF
 
-After generating the HTML file, convert it to PDF:
+After generating the HTML file, convert it to PDF using Chrome headless:
 
 ```bash
-# Save HTML first, then convert
-/opt/homebrew/bin/wkhtmltopdf --enable-local-file-access --page-size Letter --margin-top 20mm --margin-bottom 20mm --margin-left 15mm --margin-right 15mm "[HTML_PATH]" "[PDF_PATH]"
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu --no-pdf-header-footer --print-to-pdf="[PDF_PATH]" --print-to-pdf-no-header "[HTML_PATH]"
 ```
 
 Save the PDF to: `/Users/jc/Downloads/Brand-Identity-[Client-Name].pdf`
 
-If `wkhtmltopdf` is not available, keep the HTML file and tell the user to open it in a browser and print to PDF.
+You can delete the intermediate HTML file after the PDF is generated successfully. If Chrome is not available, keep the HTML file and tell the user to open it in a browser and print to PDF.
 
 ## Step 7: Generate design-language.md
 
