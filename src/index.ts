@@ -5,15 +5,13 @@
  * A Model Context Protocol server that generates comprehensive brand identity
  * systems — strategy, voice, messaging, visual identity, and design system specs.
  *
- * Transport: stdio (for local use with Claude Desktop / Claude Code)
+ * Transport: Streamable HTTP at /mcp (for Railway deployment)
  */
 
+import { createServer } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerBrandIdentityTools } from "./tools/brand-identity.js";
-
-// CRITICAL: Never use console.log() - it corrupts JSON-RPC on stdout
-// Always use console.error() for any logging/debugging
 
 export const BRAND_IDENTITY_GUIDE = `
 ## Brand Identity Generation Guide
@@ -92,7 +90,7 @@ async function main(): Promise<void> {
     version: "1.0.0",
   });
 
-  // Register the guide prompt that tells Claude how to generate brand identities
+  // Register the guide prompt
   server.prompt(
     "brand-identity-guide",
     "Complete guide for generating brand identity systems — discovery questions, deliverable selection, generation process, and file saving instructions",
@@ -112,16 +110,46 @@ async function main(): Promise<void> {
   // Register all tools
   registerBrandIdentityTools(server);
 
-  // Graceful shutdown handlers
-  process.on("SIGTERM", () => {
-    console.error("Received SIGTERM, shutting down...");
-    process.exit(0);
+  // Streamable HTTP transport — stateless (no session management needed)
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
   });
 
-  process.on("SIGINT", () => {
-    console.error("Received SIGINT, shutting down...");
-    process.exit(0);
+  await server.connect(transport);
+
+  // HTTP server
+  const PORT = parseInt(process.env.PORT || "3000", 10);
+
+  const httpServer = createServer(async (req, res) => {
+    const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+
+    // Health check
+    if (url.pathname === "/health" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", server: "brand-identity-mcp" }));
+      return;
+    }
+
+    // MCP endpoint
+    if (url.pathname === "/mcp") {
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    // Not found
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
   });
+
+  // Graceful shutdown
+  const shutdown = () => {
+    console.error("Shutting down...");
+    httpServer.close();
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 
   process.on("uncaughtException", (error) => {
     console.error("Uncaught exception:", error);
@@ -133,12 +161,11 @@ async function main(): Promise<void> {
     process.exit(1);
   });
 
-  const transport = new StdioServerTransport();
-
-  console.error("Starting Brand Identity MCP server...");
-  console.error("Available tools: generate_brand_identity");
-
-  await server.connect(transport);
+  httpServer.listen(PORT, () => {
+    console.error(`Brand Identity MCP server listening on port ${PORT}`);
+    console.error(`MCP endpoint: http://localhost:${PORT}/mcp`);
+    console.error(`Health check: http://localhost:${PORT}/health`);
+  });
 }
 
 main().catch((error) => {
