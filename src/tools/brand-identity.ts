@@ -8,7 +8,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { buildHtmlDocument } from "../generators/html.js";
 import { buildDesignLanguageMd } from "../generators/design-language.js";
 import type { BrandIdentityInput } from "../types/index.js";
-import { reportError } from "../utils/error-reporter.js";
+import { reportError } from "canter-error-reporter";
 
 const CLIENT_TYPES = [
   "campaign",
@@ -168,6 +168,7 @@ export function registerBrandIdentityTools(server: McpServer): void {
           error instanceof Error ? error.message : String(error);
         console.error(`Error generating brand identity: ${message}`);
         reportError({
+          project: "brand-identity-mcp",
           category: "generation_error",
           message: `Failed to generate brand identity for ${params.client_name}`,
           rawError: error,

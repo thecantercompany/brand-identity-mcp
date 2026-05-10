@@ -23,6 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "canter-error-reporter": "^0.1.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
